@@ -1,0 +1,262 @@
+name: Process Sprite Submission
+
+# Sister workflow to process-submission.yml (which handles layout JSON via
+# inline code blocks). This one handles ATTACHED PNGS:
+#   - pet-submission         → sprites/pets/<id>/sprite.png        (160×96)
+#   - character-submission   → sprites/characters/<id>/sprite.png  (112×96)
+#   - prop-submission        → sprites/props/<id>/sprite.png       (variable)
+#   - background-submission  → backgrounds/<id>/background.png     (1280×800)
+#
+# Convention: issue body has a metadata block plus a markdown image link
+# (![alt](url)) pointing at the uploaded sprite. The workflow downloads
+# that image, validates dimensions, places it in the right directory with
+# metadata.json, generates a thumbnail, and opens a PR.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  process:
+    if: >-
+      contains(github.event.issue.labels.*.name, 'pet-submission') ||
+      contains(github.event.issue.labels.*.name, 'character-submission') ||
+      contains(github.event.issue.labels.*.name, 'prop-submission') ||
+      contains(github.event.issue.labels.*.name, 'background-submission')
+    runs-on: ubuntu-latest
+    outputs:
+      asset_id: ${{ steps.parse.outputs.asset_id }}
+      asset_name: ${{ steps.parse.outputs.asset_name }}
+      asset_author: ${{ steps.parse.outputs.asset_author }}
+      asset_kind: ${{ steps.parse.outputs.asset_kind }}
+      kind_dir: ${{ steps.parse.outputs.kind_dir }}
+      issue_number: ${{ steps.parse.outputs.issue_number }}
+      pr_number: ${{ steps.create_pr.outputs.pr_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install image tools
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+
+      - name: Parse issue, download sprite, validate, place
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const https = require('https');
+
+            const issue = context.payload.issue;
+            const body = issue.body || '';
+            const labels = issue.labels.map((l) => l.name);
+
+            // Detect kind from label
+            const KIND_MAP = {
+              'pet-submission':        { kind: 'pet',        dir: 'sprites/pets',       assetFile: 'sprite.png',     expectedDims: { w: 160, h: 96  } },
+              'character-submission':  { kind: 'character',  dir: 'sprites/characters', assetFile: 'sprite.png',     expectedDims: { w: 112, h: 96  } },
+              'prop-submission':       { kind: 'prop',       dir: 'sprites/props',      assetFile: 'sprite.png',     expectedDims: null /* variable */ },
+              'background-submission': { kind: 'background', dir: 'backgrounds',        assetFile: 'background.png', expectedDims: { w: 1280, h: 800 } },
+            };
+            const labelHit = labels.find((l) => KIND_MAP[l]);
+            if (!labelHit) {
+              core.setFailed('No recognized submission label found');
+              return;
+            }
+            const cfg = KIND_MAP[labelHit];
+
+            async function fail(msg) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `❌ ${msg}`,
+              });
+              core.setFailed(msg);
+            }
+
+            // Metadata parsing — same field conventions as layout submissions
+            const nameMatch = body.match(/\*\*Name:\*\*\s*(.+)/);
+            const authorMatch = body.match(/\*\*Author:\*\*\s*(.+)/);
+            const descMatch = body.match(/\*\*Description:\*\*\s*(.+)/);
+            const tagsMatch = body.match(/\*\*Tags:\*\*\s*(.+)/);
+            const speciesMatch = body.match(/\*\*Species:\*\*\s*(cat|dog)/i);
+            const categoryMatch = body.match(/\*\*Category:\*\*\s*(.+)/);
+
+            // Find the first image attachment URL — GitHub's user-images / githubusercontent
+            const imgMatch = body.match(/!\[[^\]]*\]\((https?:\/\/[^)]+\.(?:png|jpg|jpeg|webp))\)/i);
+
+            if (!nameMatch) { await fail('Missing **Name:** field.'); return; }
+            if (!imgMatch)  { await fail('No sprite image attached. Drag & drop the PNG into the issue body and re-trigger.'); return; }
+
+            const assetName = nameMatch[1].trim();
+            const author = authorMatch ? authorMatch[1].trim() : 'anonymous';
+            const description = descMatch ? descMatch[1].trim() : '';
+            const tags = tagsMatch ? tagsMatch[1].split(',').map((t) => t.trim().toLowerCase()).filter(Boolean) : [];
+            const imageUrl = imgMatch[1];
+
+            // Slug id from name
+            const id = assetName.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+            if (!id) { await fail('Could not derive a slug from the name.'); return; }
+
+            const assetDir = path.join(cfg.dir, id);
+            if (fs.existsSync(assetDir)) { await fail(`\`${assetDir}\` already exists. Pick a different name.`); return; }
+
+            // Download attached image
+            const tmpPath = `/tmp/${id}-${Date.now()}.png`;
+            await new Promise((resolve, reject) => {
+              const file = fs.createWriteStream(tmpPath);
+              https.get(imageUrl, (res) => {
+                if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
+                res.pipe(file);
+                file.on('finish', () => file.close(resolve));
+              }).on('error', reject);
+            });
+
+            // Validate dimensions via ImageMagick `identify`
+            const { execSync } = require('child_process');
+            const idOut = execSync(`identify -format "%w %h" "${tmpPath}"`).toString().trim();
+            const [actualW, actualH] = idOut.split(/\s+/).map(Number);
+
+            if (cfg.expectedDims) {
+              if (actualW !== cfg.expectedDims.w || actualH !== cfg.expectedDims.h) {
+                await fail(`Wrong dimensions: ${actualW}×${actualH}. Expected ${cfg.expectedDims.w}×${cfg.expectedDims.h}.`);
+                return;
+              }
+            } else if (cfg.kind === 'prop') {
+              if (actualW % 16 !== 0 || actualH % 16 !== 0) {
+                await fail(`Prop dimensions must be multiples of 16. Got ${actualW}×${actualH}.`);
+                return;
+              }
+            }
+
+            // Build metadata
+            const metadata = {
+              name: assetName,
+              author,
+              description,
+              tags,
+              createdAt: new Date().toISOString().slice(0, 10),
+              issueNumber: issue.number,
+            };
+            if (cfg.kind === 'pet') {
+              if (!speciesMatch) { await fail('Pet submission requires **Species:** cat or dog.'); return; }
+              metadata.species = speciesMatch[1].toLowerCase();
+            }
+            if (cfg.kind === 'prop') {
+              metadata.category = categoryMatch ? categoryMatch[1].trim() : 'decor';
+              metadata.width = actualW;
+              metadata.height = actualH;
+            }
+
+            // Place files
+            fs.mkdirSync(assetDir, { recursive: true });
+            fs.copyFileSync(tmpPath, path.join(assetDir, cfg.assetFile));
+            fs.writeFileSync(path.join(assetDir, 'metadata.json'), JSON.stringify(metadata, null, 2) + '\n');
+
+            // Generate thumbnail — kind-specific crop
+            const thumbPath = path.join(assetDir, 'thumbnail.png');
+            try {
+              if (cfg.kind === 'pet') {
+                // Idle pose = col 2 of row 0 in 5×3 grid of 32×32 cells → x=64,y=0,32×32
+                execSync(`convert "${tmpPath}" -crop 32x32+64+0 +repage "${thumbPath}"`);
+              } else if (cfg.kind === 'character') {
+                // Idle pose = col 1 of row 0 in 7×3 grid of 16×32 cells → x=16,y=0,16×32
+                execSync(`convert "${tmpPath}" -crop 16x32+16+0 +repage "${thumbPath}"`);
+              } else if (cfg.kind === 'background') {
+                // Downscale 8× for a small preview
+                execSync(`convert "${tmpPath}" -filter point -resize 12.5% "${thumbPath}"`);
+              } else {
+                // Props: thumbnail equals the asset
+                fs.copyFileSync(tmpPath, thumbPath);
+              }
+            } catch (e) {
+              console.warn('Thumbnail generation failed:', e.message);
+            }
+
+            core.setOutput('asset_id', id);
+            core.setOutput('asset_name', assetName);
+            core.setOutput('asset_author', author);
+            core.setOutput('asset_kind', cfg.kind);
+            core.setOutput('kind_dir', cfg.dir);
+            core.setOutput('issue_number', String(issue.number));
+
+      - name: Create branch and push
+        if: steps.parse.outputs.asset_id != ''
+        run: |
+          BRANCH="${{ steps.parse.outputs.asset_kind }}/${{ steps.parse.outputs.asset_id }}-${{ steps.parse.outputs.issue_number }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add "${{ steps.parse.outputs.kind_dir }}/${{ steps.parse.outputs.asset_id }}"
+          git commit -m "feat(${{ steps.parse.outputs.asset_kind }}): add '${{ steps.parse.outputs.asset_name }}' (#${{ steps.parse.outputs.issue_number }})"
+          git push origin "$BRANCH"
+
+      - name: Open PR and comment on issue
+        id: create_pr
+        if: steps.parse.outputs.asset_id != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const kind = '${{ steps.parse.outputs.asset_kind }}';
+            const id = '${{ steps.parse.outputs.asset_id }}';
+            const name = '${{ steps.parse.outputs.asset_name }}';
+            const author = '${{ steps.parse.outputs.asset_author }}';
+            const dir = '${{ steps.parse.outputs.kind_dir }}';
+            const issueNumber = Number('${{ steps.parse.outputs.issue_number }}');
+            const branch = `${kind}/${id}-${issueNumber}`;
+            const previewUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${branch}/${dir}/${id}/thumbnail.png?raw=true`;
+
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Add ${kind}: ${name}`,
+              head: branch,
+              base: 'main',
+              body: [
+                `Adds community ${kind} **${name}** by @${author}.`,
+                '',
+                `Closes #${issueNumber}`,
+                '',
+                '_Auto-generated from issue submission._',
+                '',
+                '---',
+                `### 🖼️ Preview`,
+                '',
+                `![${name}](${previewUrl})`,
+              ].join('\n'),
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: [
+                `✅ ${kind} submission accepted. PR #${pr.data.number} is open.`,
+                '',
+                `![${name}](${previewUrl})`,
+                '',
+                'A maintainer will review and merge.',
+              ].join('\n'),
+            });
+
+            core.setOutput('pr_number', String(pr.data.number));
+
+      - name: Handle process failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.payload.issue.number;
+            // Only comment if no fail() was already posted by the parse step
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: '⚠️ Submission could not be processed automatically. A maintainer will take a look.',
+            });

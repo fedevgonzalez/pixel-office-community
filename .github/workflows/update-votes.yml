@@ -1,8 +1,11 @@
 name: Update Vote Counts
 
+# Every 6h, walk every kind's directory and sync metadata.votes with the
+# corresponding GitHub Issue's :+1: reaction count.
+
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -21,47 +24,55 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const layoutsDir = 'layouts';
-            const entries = fs.readdirSync(layoutsDir, { withFileTypes: true });
+
+            // Source directories for each asset kind.
+            const KIND_DIRS = [
+              'layouts',
+              'sprites/pets',
+              'sprites/characters',
+              'sprites/props',
+              'backgrounds',
+            ];
+
             let changed = false;
 
-            for (const entry of entries) {
-              if (!entry.isDirectory()) continue;
-              const metaPath = path.join(layoutsDir, entry.name, 'metadata.json');
-              if (!fs.existsSync(metaPath)) continue;
+            for (const kindDir of KIND_DIRS) {
+              if (!fs.existsSync(kindDir)) continue;
+              const entries = fs.readdirSync(kindDir, { withFileTypes: true });
+              for (const entry of entries) {
+                if (!entry.isDirectory()) continue;
+                const metaPath = path.join(kindDir, entry.name, 'metadata.json');
+                if (!fs.existsSync(metaPath)) continue;
 
-              const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-              if (!metadata.issueNumber) continue;
+                const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+                if (!metadata.issueNumber) continue;
 
-              try {
-                const reactions = await github.rest.reactions.listForIssue({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: metadata.issueNumber,
-                  per_page: 100,
-                });
-
-                const likes = reactions.data.filter(r => r.content === '+1').length;
-
-                if (metadata.votes !== likes) {
-                  metadata.votes = likes;
-                  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2) + '\n');
-                  console.log(`${entry.name}: ${likes} likes`);
-                  changed = true;
+                try {
+                  const reactions = await github.rest.reactions.listForIssue({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: metadata.issueNumber,
+                    per_page: 100,
+                  });
+                  const likes = reactions.data.filter((r) => r.content === '+1').length;
+                  if (metadata.votes !== likes) {
+                    metadata.votes = likes;
+                    fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2) + '\n');
+                    console.log(`${kindDir}/${entry.name}: ${likes} likes`);
+                    changed = true;
+                  }
+                } catch (e) {
+                  console.warn(`Failed for #${metadata.issueNumber} (${kindDir}/${entry.name}): ${e.message}`);
                 }
-              } catch (e) {
-                console.warn(`Failed to fetch reactions for issue #${metadata.issueNumber}: ${e.message}`);
               }
             }
 
-            if (!changed) {
-              console.log('No vote changes detected');
-            }
+            if (!changed) console.log('No vote changes');
             core.setOutput('changed', changed.toString());
 
-      - name: Regenerate gallery
+      - name: Regenerate manifests
         if: steps.fetch-votes.outputs.changed == 'true'
-        run: node scripts/generate-gallery.js
+        run: node scripts/generate-manifests.js
 
       - name: Commit changes
         if: steps.fetch-votes.outputs.changed == 'true'
