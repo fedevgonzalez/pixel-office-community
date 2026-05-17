@@ -1,108 +1,123 @@
-# Contributing Layouts
+# Contributing to Pixel Office Community
 
-Thanks for sharing your Pixel Office layout with the community!
+Thanks for sharing! This repo hosts four kinds of community assets — each follows the same submission pattern with kind-specific format rules.
 
-## Submission Guide
+| Kind        | Top-level dir          | Asset file         | Required dimensions    | Submission label         |
+|-------------|------------------------|--------------------|------------------------|--------------------------|
+| Layout      | `layouts/`             | `layout.json`      | n/a (JSON file)        | `layout-submission`      |
+| Pet sprite  | `sprites/pets/`        | `sprite.png`       | 160 × 96 (32×32 cells) | `pet-submission`         |
+| Character   | `sprites/characters/`  | `sprite.png`       | 112 × 96 (16×32 cells) | `character-submission`   |
+| Prop        | `sprites/props/`       | `sprite.png`       | multiple of 16 px      | `prop-submission`        |
+| Background  | `backgrounds/`         | `background.png`   | 1280 × 800 (or 4× mult)| `background-submission`  |
 
-### Easy way: Share from the app
+## The easy path: share from the Pixel Office app
 
-1. In Pixel Office, click **Community** > **Share Your Layout**
-2. Fill in the name, description, and tags
-3. Click Share — this opens a pre-filled GitHub Issue
-4. Submit the issue — a CI bot will automatically create a PR with your layout and a preview screenshot
+In Pixel Office, each editor has a **Share** button that opens a pre-filled GitHub Issue with the right submission label and metadata block. Drag-and-drop your PNG sprite into the issue body (skip this step for layouts — those embed the JSON inline), then submit. CI takes over.
 
-That's it! A maintainer will review and merge your layout. Once merged, it appears in the community gallery and users can vote for it.
+## The manual path: open a PR yourself
 
-### Manual way: Open a PR
+### Common metadata.json
 
-#### 1. Export your layout
+Every kind requires a `metadata.json` in its entry directory:
 
-In Pixel Office, open **Settings** > **Export Layout** and save the `.json` file.
-
-#### 2. Fork and clone this repo
-
-```sh
-git clone https://github.com/<your-username>/pixel-office-layouts.git
-cd pixel-office-layouts
-```
-
-#### 3. Create your layout directory
-
-Each layout lives in its own subdirectory under `layouts/`:
-
-```
-layouts/
-  your-layout-name/
-    layout.json        # Your exported layout file
-    metadata.json      # Layout metadata (see below)
-    preview.png        # Screenshot of your layout (optional but recommended)
-```
-
-Use lowercase kebab-case for the directory name. Keep it short and descriptive (e.g. `cozy-startup`, `big-open-plan`, `cyberpunk-hq`).
-
-#### 4. Create metadata.json
-
-```json
+```jsonc
 {
-  "name": "Your Layout Name",
+  "name": "Display name",
   "author": "your-github-username",
-  "description": "A short description of your layout",
-  "tags": ["tag1", "tag2"],
+  "description": "1-2 sentence description",
+  "tags": ["lowercase", "tags"],
   "createdAt": "YYYY-MM-DD"
 }
 ```
 
-**Fields:**
+Plus per-kind fields (see below).
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Display name for your layout |
-| `author` | Yes | Your GitHub username |
-| `description` | Yes | Brief description (1-2 sentences) |
-| `tags` | Yes | Array of lowercase tags for categorization |
-| `createdAt` | Yes | Date in `YYYY-MM-DD` format |
-| `issueNumber` | No | Assigned automatically by CI when your layout is processed |
+### Per-kind submission
 
-#### 5. Add a preview screenshot
+#### Layouts (`layouts/<id>/`)
 
-Take a screenshot of your layout in Pixel Office and save it as `preview.png` in your layout directory. This helps others see what your layout looks like before importing it.
+Files: `layout.json`, `metadata.json`, `preview.png` *(optional — CI generates one if missing)*.
 
-#### 6. Test locally
+Layout JSON must be a Pixel Office v1 export (`version: 1`, `tiles[]`, `furniture[]`). Strip the `pets` field — pets are personal and never imported from community layouts.
 
-Run the gallery generator to make sure your entry is valid:
+#### Pet sprites (`sprites/pets/<id>/`)
+
+Files: `sprite.png` (160 × 96), `metadata.json`, `thumbnail.png` *(optional — CI crops one)*.
+
+Sprite layout: 5 columns × 3 rows of 32 × 32 frames. See [`sprites/pets/README.md`](sprites/pets/README.md) for the frame-by-frame spec.
+
+Per-kind metadata:
+
+```jsonc
+{
+  // …common fields…
+  "species": "cat"   // "cat" or "dog" — REQUIRED
+}
+```
+
+#### Character sprites (`sprites/characters/<id>/`)
+
+Files: `sprite.png` (112 × 96), `metadata.json`, `thumbnail.png` *(optional)*.
+
+Sprite layout: 7 columns × 3 rows of 16 × 32 frames. See [`sprites/characters/README.md`](sprites/characters/README.md).
+
+No extra metadata beyond the common fields.
+
+#### Props (`sprites/props/<id>/`)
+
+Files: `sprite.png` (variable size, multiple of 16 on each axis), `metadata.json`, `thumbnail.png` *(may equal sprite if small)*.
+
+Per-kind metadata:
+
+```jsonc
+{
+  // …common fields…
+  "category": "plant",   // plant | lamp | furniture | electronics | decor
+  "width": 16,
+  "height": 24
+}
+```
+
+#### Backgrounds (`backgrounds/<id>/`)
+
+Files: `background.png` (1280 × 800 or any clean 4× multiple), `metadata.json`, `thumbnail.png` *(optional — CI generates an 8× downscale)*.
+
+No extra metadata beyond the common fields.
+
+### Testing your entry locally
+
+Regenerate every manifest:
 
 ```sh
-node scripts/generate-gallery.js
+node scripts/generate-manifests.js
 ```
 
-Check that `gallery.json` includes your layout with the correct information.
+…or one specific kind:
 
-#### 7. Open a Pull Request
-
-Push your branch and open a PR. The gallery will be automatically regenerated when your PR is merged.
-
-## Directory Structure
-
-```
-layouts/
-  your-layout-name/
-    layout.json       # Pixel Office layout (version 1 format)
-    metadata.json     # Name, author, description, tags, date
-    preview.png       # Screenshot (optional)
+```sh
+node scripts/generate-manifests.js pets
 ```
 
-## Guidelines
+Check the relevant manifest file (`gallery.json`, `sprites/pets.json`, …) — your entry should appear with the right derived fields.
 
-- One layout per directory
-- Layout files must be valid Pixel Office exports (`version: 1` with `tiles` and `furniture` arrays)
-- Keep descriptions concise
-- Use relevant tags to help others find your layout
-- Preview screenshots should show the full layout
+### Open a PR
+
+Push your branch and open a PR. CI:
+- Regenerates the manifest files on merge.
+- Updates vote counts every 6 hours by reading 👍 reactions on the linked issue.
 
 ## Voting
 
-Once your layout is merged, users can star it directly in the Pixel Office app. Stars are stored as +1 reactions on the layout's GitHub Issue, and vote counts are synced automatically every 6 hours. No action needed from you -- it just works.
+Once merged, every entry has a corresponding GitHub Issue. Users vote by clicking the ⭐ in the app (or 👍 on the issue directly). Vote counts sync into the manifests on a schedule — no action needed from contributors.
+
+## Guidelines
+
+- One entry per directory.
+- Kebab-case directory names: `cozy-startup`, `cat-calico`, `plant-fern`, `theme-cyberpunk`.
+- Pure pixel art for sprites — no anti-aliasing, no smoothing, ≤ 8 colors per character/pet.
+- Don't include readable text or recognizable corporate logos in any asset.
+- Keep descriptions concise. Tag liberally — tags are how people discover your work.
 
 ## License
 
-By submitting a layout, you agree to release it under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) -- free to use for any purpose, no attribution required.
+By submitting, you agree to release the asset under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) — free to use for any purpose, no attribution required.
