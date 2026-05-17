@@ -1,59 +1,65 @@
-# Pixel Office Layouts
+# Pixel Office Community
 
-Community gallery of layouts for [Pixel Office](https://github.com/fedevgonzalez/pixel-office). Browse, star, and import layouts directly from the app.
+Community gallery for [Pixel Office](https://github.com/fedevgonzalez/pixel-office) — layouts, character/pet/prop sprites, and background themes. Browse, vote, and import directly from the app.
 
-## How to use a layout
-
-The easiest way is through the app: click **Community** in Pixel Office to browse and import layouts with one click.
-
-You can also do it manually:
-
-1. Browse the [`layouts/`](layouts/) directory and pick one you like
-2. Download the `layout.json` file from the layout's subdirectory
-3. In Pixel Office, open **Settings** > **Import Layout**
-4. Select the downloaded `.json` file
-
-## Directory structure
-
-Each layout lives in its own subdirectory:
+## What's in here
 
 ```
-layouts/
-  default-office/
-    layout.json       # The Pixel Office layout file
-    metadata.json     # Name, author, description, tags
-    preview.png       # Screenshot (optional)
+layouts/              # office floor plans
+sprites/
+  characters/         # 112×96 agent sprite sheets
+  pets/               # 160×96 pet sprite sheets (cat / dog / future species)
+  props/              # individual decoration sprites (plants, lamps, computers…)
+backgrounds/          # 1280×800 world backdrops behind the office
 ```
 
-## How to submit a layout
+Each kind has its own README in its directory with the exact format and submission spec.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full submission guide.
+## Quick links
+
+| Asset | Format | Per-entry README |
+|-------|--------|------------------|
+| Layouts | JSON exported from the app | [`layouts/`](layouts/) |
+| Characters | 112×96 PNG sprite sheet | [`sprites/characters/`](sprites/characters/README.md) |
+| Pets | 160×96 PNG sprite sheet | [`sprites/pets/`](sprites/pets/README.md) |
+| Props | variable-size PNG | [`sprites/props/`](sprites/props/README.md) |
+| Backgrounds | 1280×800 PNG | [`backgrounds/`](backgrounds/README.md) |
+
+## How to use a contribution
+
+The easiest way is through the app: click **Community** in Pixel Office to browse and import any kind of asset with one click.
+
+Manual import is supported too — download the file from this repo and drop it into the relevant directory under `~/.pixel-office/` (or use the app's Settings → Import flow for layouts).
+
+## How to submit
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full submission guide, or share directly from the app via **Community → Share**.
 
 **Quick version:**
 
-1. Fork this repo
-2. Export your layout from Pixel Office (**Settings** > **Export Layout**)
-3. Create a new directory under `layouts/` with your `layout.json`, `metadata.json`, and an optional `preview.png`
-4. Run `node scripts/generate-gallery.js` to verify
-5. Open a Pull Request
+1. Fork this repo.
+2. Create a directory under the right top-level folder (e.g. `sprites/pets/cat_calico/`) with the required files (sprite + metadata).
+3. Open a Pull Request — CI validates dimensions and generates a thumbnail.
 
 ## Voting
 
-Each layout has a corresponding GitHub Issue (labeled `layout-submission`). You can vote for layouts you like:
+Every contribution has a corresponding GitHub Issue (labeled `<kind>-submission`). You can vote by:
 
-- **In the app:** Click the star icon on any layout in the Community gallery — this adds a +1 reaction to the layout's GitHub Issue.
-- **On GitHub:** Find the layout's issue and add a :+1: reaction directly.
+- **In the app:** click the star icon on any gallery card → adds a 👍 reaction to the issue.
+- **On GitHub:** add a 👍 reaction directly to the issue.
 
-Vote counts are synced automatically every 6 hours and reflected in `gallery.json`.
+Vote counts sync every 6 hours into the per-kind manifest files.
 
-## Gallery
+## Manifest files
 
-See [`gallery.json`](gallery.json) for the full machine-readable index of all layouts with metadata, stats, and vote counts. It is regenerated automatically when layouts are added or votes change. Browse layouts directly in the Pixel Office app for the best experience.
+Each kind has its own machine-readable index, regenerated on push to `main`:
 
-## Contributing
-
-This repo is public and welcomes contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide, or share your layout directly from the Pixel Office app.
+- [`layouts.json`](layouts.json) (currently `gallery.json` for backwards compatibility)
+- `sprites/characters.json` *(coming soon)*
+- `sprites/pets.json` *(coming soon)*
+- `sprites/props.json` *(coming soon)*
+- `backgrounds.json` *(coming soon)*
 
 ## License
 
-All layouts in this repository are shared under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) -- free to use for any purpose, no attribution required.
+All contributions are shared under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) — free to use for any purpose, no attribution required.
