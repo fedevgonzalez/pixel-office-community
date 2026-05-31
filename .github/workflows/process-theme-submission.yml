@@ -138,23 +138,41 @@ jobs:
             // tile colors. Best-effort; non-blocking if ImageMagick is unhappy.
             const thumbPath = path.join(themeDir, 'thumbnail.png');
             try {
-              function hslToHex(c) {
+              // A `FloorColor` in Pixel Office is a Photoshop-style adjustment,
+              // not plain HSL: { h:0-360, s:0-100, b:-100..100 (brightness),
+              // c:-100..100 (contrast), colorize?:bool }. For a swatch we map it
+              // to an HSL color: hue=h, sat=s/100 (clamped), lightness derived
+              // from the brightness adjustment around a mid 50%.
+              function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+              function floorColorToHex(c) {
                 if (!c || typeof c.h !== 'number') return null;
-                const h = c.h, s = c.s ?? 0.5, l = c.l ?? 0.5;
+                const h = ((c.h % 360) + 360) % 360;
+                const s = clamp((typeof c.s === 'number' ? c.s : 50) / 100, 0, 1);
+                const bright = typeof c.b === 'number' ? c.b : 0; // -100..100
+                const l = clamp(0.5 + bright / 200, 0.08, 0.92);  // map to lightness
                 const a = s * Math.min(l, 1 - l);
                 const f = (n) => {
                   const k = (n + h / 30) % 12;
                   const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-                  return Math.round(255 * v).toString(16).padStart(2, '0');
+                  return clamp(Math.round(255 * v), 0, 255).toString(16).padStart(2, '0');
                 };
                 return `#${f(0)}${f(8)}${f(4)}`;
               }
-              const swatches = [theme.dayFill, theme.nightFill];
+              // Only emit values that are already a safe #rrggbb / #rgb hex so a
+              // malformed color can never poison the `convert` command line.
+              const HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+              const sanitize = (v) => (typeof v === 'string' && HEX.test(v.trim()) ? v.trim() : null);
+              const swatches = [];
+              for (const v of [theme.dayFill, theme.nightFill]) {
+                const hex = sanitize(v);
+                if (hex) swatches.push(hex);
+              }
               for (const v of Object.values(theme.tileColors)) {
-                const hex = hslToHex(v);
+                const hex = sanitize(floorColorToHex(v));
                 if (hex) swatches.push(hex);
                 if (swatches.length >= 6) break;
               }
+              if (swatches.length === 0) swatches.push('#888888');
               // Build a horizontal strip of color bands → 160×100 card
               const bands = swatches.map((c) => `xc:"${c}"`).join(' ');
               execSync(`convert -size 160x100 ${bands} +append -resize 160x100! "${thumbPath}"`);
