@@ -1,5 +1,22 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-31T13:40:43.984Z",
-  "backgrounds": []
+  "updatedAt": "2026-05-31T13:46:54.090Z",
+  "backgrounds": [
+    {
+      "id": "custom:autumn-yard",
+      "name": "Autumn Yard",
+      "author": "fedevgonzalez",
+      "description": "A warm autumn exterior — golden grass, terracotta paths, and dusky asphalt under a low amber sun.",
+      "tags": [
+        "autumn",
+        "warm",
+        "cozy",
+        "nature"
+      ],
+      "createdAt": "2026-05-31",
+      "issueNumber": 29,
+      "screenshot": "backgrounds/autumn-yard/thumbnail.png",
+      "theme": "backgrounds/autumn-yard/theme.json"
+    }
+  ]
 }
