@@ -1,0 +1,241 @@
+name: Process Theme Submission
+
+# Sister workflow to process-submission.yml (layout JSON) and
+# process-sprite-submission.yml (attached PNGs). This one handles THEME JSON:
+#   - theme-submission → backgrounds/<id>/theme.json + metadata.json (+ thumbnail.png)
+#
+# Convention: issue body has a metadata block (Name/Author/Description/Tags)
+# plus a ```json``` fenced code block containing a CustomThemePreset export.
+# The workflow parses that JSON, validates the preset shape, strips the
+# `custom:` prefix from the id, places it under backgrounds/<id>/ with
+# metadata.json, generates a small swatch thumbnail, and opens a PR.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  process:
+    if: contains(github.event.issue.labels.*.name, 'theme-submission')
+    runs-on: ubuntu-latest
+    outputs:
+      theme_id: ${{ steps.parse.outputs.theme_id }}
+      theme_name: ${{ steps.parse.outputs.theme_name }}
+      theme_author: ${{ steps.parse.outputs.theme_author }}
+      issue_number: ${{ steps.parse.outputs.issue_number }}
+      pr_number: ${{ steps.create_pr.outputs.pr_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install image tools
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+
+      - name: Parse issue, validate theme JSON, place files
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const { execSync } = require('child_process');
+
+            const issue = context.payload.issue;
+            const body = issue.body || '';
+
+            async function fail(msg) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `❌ ${msg}`,
+              });
+              core.setFailed(msg);
+            }
+
+            // Metadata parsing — same field conventions as layout/sprite submissions
+            const nameMatch = body.match(/\*\*Name:\*\*\s*(.+)/);
+            const authorMatch = body.match(/\*\*Author:\*\*\s*(.+)/);
+            const descMatch = body.match(/\*\*Description:\*\*\s*(.+)/);
+            const tagsMatch = body.match(/\*\*Tags:\*\*\s*(.+)/);
+
+            // Extract the JSON code block (```json ... ```), falling back to a
+            // bare ``` ... ``` block if the user omitted the language hint.
+            let jsonMatch = body.match(/```json\s*([\s\S]*?)```/i);
+            if (!jsonMatch) jsonMatch = body.match(/```\s*([\s\S]*?)```/);
+
+            if (!nameMatch) { await fail('Missing **Name:** field.'); return; }
+            if (!jsonMatch) { await fail('No theme JSON found. Paste your exported theme inside a ```json fenced code block.'); return; }
+
+            const themeName = nameMatch[1].trim();
+            const author = authorMatch ? authorMatch[1].trim() : 'anonymous';
+            const description = descMatch ? descMatch[1].trim() : '';
+            const tags = tagsMatch ? tagsMatch[1].split(',').map((t) => t.trim().toLowerCase()).filter(Boolean) : [];
+
+            // Parse the theme JSON, ignoring placeholder text from the template
+            const rawJson = jsonMatch[1].trim();
+            if (/PASTE YOUR THEME JSON HERE/i.test(rawJson) || !rawJson) {
+              await fail('The theme JSON block is empty. Use Theme Picker → Export in Pixel Office and paste the JSON.');
+              return;
+            }
+            let theme;
+            try {
+              theme = JSON.parse(rawJson);
+            } catch (e) {
+              await fail(`Theme JSON is not valid JSON: ${e.message}`);
+              return;
+            }
+
+            // Validate CustomThemePreset shape
+            if (theme.version !== 1) { await fail('Theme must have `version: 1`.'); return; }
+            if (!theme.tileColors || typeof theme.tileColors !== 'object') { await fail('Theme is missing `tileColors`.'); return; }
+            if (!theme.zones || typeof theme.zones !== 'object') { await fail('Theme is missing `zones`.'); return; }
+            for (const z of ['sidewalk', 'lawn', 'road']) {
+              if (typeof theme.zones[z] !== 'number') { await fail(`Theme is missing \`zones.${z}\` (must be a number).`); return; }
+            }
+            if (typeof theme.dayFill !== 'string') { await fail('Theme is missing `dayFill` (hex color string).'); return; }
+            if (typeof theme.nightFill !== 'string') { await fail('Theme is missing `nightFill` (hex color string).'); return; }
+
+            // Derive on-disk id: prefer the slug from the theme id (stripped of
+            // `custom:` prefix), else fall back to a slug of the name.
+            function slugify(s) {
+              return String(s).toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+            }
+            let id;
+            if (typeof theme.id === 'string' && theme.id.startsWith('custom:')) {
+              id = slugify(theme.id.slice('custom:'.length));
+            }
+            if (!id) id = slugify(themeName);
+            if (!id) { await fail('Could not derive a slug for this theme.'); return; }
+
+            const themeDir = path.join('backgrounds', id);
+            if (fs.existsSync(themeDir)) { await fail(`\`${themeDir}\` already exists. Pick a different name.`); return; }
+
+            // Normalize the stored preset: strip the `custom:` prefix from the id
+            // (path-traversal safe; the gallery reconstructs `custom:<id>` later).
+            const storedTheme = { ...theme, id };
+
+            // Build metadata (mirrors pets/characters/props/layouts pattern)
+            const metadata = {
+              name: themeName,
+              author,
+              description,
+              tags,
+              createdAt: new Date().toISOString().slice(0, 10),
+              issueNumber: issue.number,
+            };
+
+            // Place files
+            fs.mkdirSync(themeDir, { recursive: true });
+            fs.writeFileSync(path.join(themeDir, 'theme.json'), JSON.stringify(storedTheme, null, 2) + '\n');
+            fs.writeFileSync(path.join(themeDir, 'metadata.json'), JSON.stringify(metadata, null, 2) + '\n');
+
+            // Generate a simple swatch thumbnail from the day/night fills + a few
+            // tile colors. Best-effort; non-blocking if ImageMagick is unhappy.
+            const thumbPath = path.join(themeDir, 'thumbnail.png');
+            try {
+              function hslToHex(c) {
+                if (!c || typeof c.h !== 'number') return null;
+                const h = c.h, s = c.s ?? 0.5, l = c.l ?? 0.5;
+                const a = s * Math.min(l, 1 - l);
+                const f = (n) => {
+                  const k = (n + h / 30) % 12;
+                  const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+                  return Math.round(255 * v).toString(16).padStart(2, '0');
+                };
+                return `#${f(0)}${f(8)}${f(4)}`;
+              }
+              const swatches = [theme.dayFill, theme.nightFill];
+              for (const v of Object.values(theme.tileColors)) {
+                const hex = hslToHex(v);
+                if (hex) swatches.push(hex);
+                if (swatches.length >= 6) break;
+              }
+              // Build a horizontal strip of color bands → 160×100 card
+              const bands = swatches.map((c) => `xc:"${c}"`).join(' ');
+              execSync(`convert -size 160x100 ${bands} +append -resize 160x100! "${thumbPath}"`);
+            } catch (e) {
+              console.warn('Thumbnail generation failed (non-blocking):', e.message);
+            }
+
+            core.setOutput('theme_id', id);
+            core.setOutput('theme_name', themeName);
+            core.setOutput('theme_author', author);
+            core.setOutput('issue_number', String(issue.number));
+
+      - name: Create branch and push
+        if: steps.parse.outputs.theme_id != ''
+        run: |
+          BRANCH="theme/${{ steps.parse.outputs.theme_id }}-${{ steps.parse.outputs.issue_number }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add "backgrounds/${{ steps.parse.outputs.theme_id }}"
+          git commit -m "feat(theme): add '${{ steps.parse.outputs.theme_name }}' (#${{ steps.parse.outputs.issue_number }})"
+          git push origin "$BRANCH"
+
+      - name: Open PR and comment on issue
+        id: create_pr
+        if: steps.parse.outputs.theme_id != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const id = '${{ steps.parse.outputs.theme_id }}';
+            const name = '${{ steps.parse.outputs.theme_name }}';
+            const author = '${{ steps.parse.outputs.theme_author }}';
+            const issueNumber = Number('${{ steps.parse.outputs.issue_number }}');
+            const branch = `theme/${id}-${issueNumber}`;
+            const previewUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${branch}/backgrounds/${id}/thumbnail.png?raw=true`;
+
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Add theme: ${name}`,
+              head: branch,
+              base: 'main',
+              body: [
+                `Adds community theme **${name}** by @${author}.`,
+                '',
+                `Closes #${issueNumber}`,
+                '',
+                '_Auto-generated from issue submission._',
+                '',
+                '---',
+                `### 🎨 Preview`,
+                '',
+                `![${name}](${previewUrl})`,
+              ].join('\n'),
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: [
+                `✅ Theme submission accepted. PR #${pr.data.number} is open.`,
+                '',
+                `![${name}](${previewUrl})`,
+                '',
+                'A maintainer will review and merge.',
+              ].join('\n'),
+            });
+
+            core.setOutput('pr_number', String(pr.data.number));
+
+      - name: Handle process failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.payload.issue.number;
+            // Only comment if no fail() was already posted by the parse step
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: '⚠️ Submission could not be processed automatically. A maintainer will take a look.',
+            });

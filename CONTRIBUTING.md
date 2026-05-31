@@ -1,18 +1,18 @@
 # Contributing to Pixel Office Community
 
-Thanks for sharing! This repo hosts four kinds of community assets — each follows the same submission pattern with kind-specific format rules.
+Thanks for sharing! This repo hosts several kinds of community assets — each follows the same submission pattern with kind-specific format rules.
 
-| Kind        | Top-level dir          | Asset file         | Required dimensions    | Submission label         |
+| Kind        | Top-level dir          | Asset file         | Required format        | Submission label         |
 |-------------|------------------------|--------------------|------------------------|--------------------------|
 | Layout      | `layouts/`             | `layout.json`      | n/a (JSON file)        | `layout-submission`      |
 | Pet sprite  | `sprites/pets/`        | `sprite.png`       | 160 × 96 (32×32 cells) | `pet-submission`         |
 | Character   | `sprites/characters/`  | `sprite.png`       | 112 × 96 (16×32 cells) | `character-submission`   |
 | Prop        | `sprites/props/`       | `sprite.png`       | multiple of 16 px      | `prop-submission`        |
-| Background  | `backgrounds/`         | `background.png`   | 1280 × 800 (or 4× mult)| `background-submission`  |
+| Theme       | `backgrounds/`         | `theme.json`       | n/a (JSON preset)      | `theme-submission`       |
 
 ## The easy path: share from the Pixel Office app
 
-In Pixel Office, each editor has a **Share** button that opens a pre-filled GitHub Issue with the right submission label and metadata block. Drag-and-drop your PNG sprite into the issue body (skip this step for layouts — those embed the JSON inline), then submit. CI takes over.
+In Pixel Office, each editor has a **Share** button that opens a pre-filled GitHub Issue with the right submission label and metadata block. Drag-and-drop your PNG sprite into the issue body (skip this step for layouts and themes — those embed the JSON inline), then submit. CI takes over.
 
 ## The manual path: open a PR yourself
 
@@ -78,11 +78,30 @@ Per-kind metadata:
 }
 ```
 
-#### Backgrounds (`backgrounds/<id>/`)
+#### Themes (`backgrounds/<id>/`)
 
-Files: `background.png` (1280 × 800 or any clean 4× multiple), `metadata.json`, `thumbnail.png` *(optional — CI generates an 8× downscale)*.
+Files: `theme.json` (a Pixel Office `CustomThemePreset` export), `metadata.json`, `thumbnail.png` *(optional — CI generates a color-swatch preview)*.
 
-No extra metadata beyond the common fields.
+A theme captures per-tile color overrides, exterior zone bands (sidewalk / lawn / road), and day/night fill colors — but **not** sprites. Export one from **Theme Picker → Export** in the app.
+
+`theme.json` must be a v1 preset (`version: 1`) with `zones` (`sidewalk`, `lawn`, `road`), a `tileColors` map, and `dayFill` / `nightFill` hex strings:
+
+```jsonc
+{
+  "id": "custom:my-garden-abc12",  // CI strips the `custom:` prefix on disk
+  "name": "My Garden",
+  "version": 1,
+  "zones": { "sidewalk": 3, "lawn": 8, "road": 2 },
+  "tileColors": {
+    "9":  { "h": 120, "s": 0.8, "l": 0.5 },
+    "11": { "h": 30,  "s": 0.4, "l": 0.6 }
+  },
+  "dayFill": "#87CEEB",
+  "nightFill": "#1a1a2e"
+}
+```
+
+The on-disk directory id never includes the `custom:` prefix (it is reconstructed as `custom:<id>` in `backgrounds.json` so the app can import it). No extra `metadata.json` fields beyond the common ones.
 
 ### Testing your entry locally
 
