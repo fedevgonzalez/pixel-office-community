@@ -91,17 +91,25 @@ const KINDS = {
       }
     },
   },
+  // Backgrounds = community THEMES (CustomThemePreset). The asset is a
+  // theme.json (color/zone/day-night preset), NOT a background.png. The
+  // on-disk id is stored without the `custom:` prefix (path-traversal safe);
+  // it is reconstructed as `custom:<id>` in the manifest so the webview can
+  // import it straight into its customThemes registry.
   backgrounds: {
     sourceDir: path.join(ROOT, 'backgrounds'),
-    assetFile: 'background.png',
+    assetFile: 'theme.json',
     previewFile: 'thumbnail.png',
     pathPrefix: 'backgrounds',
     arrayKey: 'backgrounds',
     outFiles: ['backgrounds.json'],
+    idTransform(id) {
+      return `custom:${id}`
+    },
     derive(_metadata, _asset, id, hasPreview) {
       return {
-        background: `backgrounds/${id}/background.png`,
-        thumbnail: hasPreview ? `backgrounds/${id}/thumbnail.png` : null,
+        screenshot: hasPreview ? `backgrounds/${id}/thumbnail.png` : null,
+        theme: `backgrounds/${id}/theme.json`,
       }
     },
   },
@@ -137,7 +145,7 @@ function buildEntries(kind, cfg) {
       : null
     const hasPreview = fs.existsSync(path.join(dirPath, cfg.previewFile))
     const base = {
-      id,
+      id: cfg.idTransform ? cfg.idTransform(id) : id,
       name: metadata.name || id,
       author: metadata.author || 'anonymous',
       description: metadata.description || '',

@@ -10,7 +10,7 @@ sprites/
   characters/         # 112×96 agent sprite sheets
   pets/               # 160×96 pet sprite sheets (cat / dog / future species)
   props/              # individual decoration sprites (plants, lamps, computers…)
-backgrounds/          # 1280×800 world backdrops behind the office
+backgrounds/          # themes — color/zone/day-night presets (theme.json)
 ```
 
 Each kind has its own README in its directory with the exact format and submission spec.
@@ -23,7 +23,7 @@ Each kind has its own README in its directory with the exact format and submissi
 | Characters | 112×96 PNG sprite sheet | [`sprites/characters/`](sprites/characters/README.md) |
 | Pets | 160×96 PNG sprite sheet | [`sprites/pets/`](sprites/pets/README.md) |
 | Props | variable-size PNG | [`sprites/props/`](sprites/props/README.md) |
-| Backgrounds | 1280×800 PNG | [`backgrounds/`](backgrounds/README.md) |
+| Themes | `theme.json` exported from the app | [`backgrounds/`](backgrounds/README.md) |
 
 ## How to use a contribution
 
@@ -55,10 +55,10 @@ Vote counts sync every 6 hours into the per-kind manifest files.
 Each kind has its own machine-readable index, regenerated on push to `main`:
 
 - [`layouts.json`](layouts.json) (currently `gallery.json` for backwards compatibility)
-- `sprites/characters.json` *(coming soon)*
-- `sprites/pets.json` *(coming soon)*
-- `sprites/props.json` *(coming soon)*
-- `backgrounds.json` *(coming soon)*
+- [`sprites/characters.json`](sprites/characters.json)
+- [`sprites/pets.json`](sprites/pets.json)
+- [`sprites/props.json`](sprites/props.json)
+- [`backgrounds.json`](backgrounds.json) — community themes
 
 ## License
 
