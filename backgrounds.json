@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-31T13:46:54.090Z",
+  "updatedAt": "2026-05-31T18:30:16.201Z",
   "backgrounds": [
     {
       "id": "custom:autumn-yard",
@@ -15,6 +15,7 @@
       ],
       "createdAt": "2026-05-31",
       "issueNumber": 29,
+      "votes": 0,
       "screenshot": "backgrounds/autumn-yard/thumbnail.png",
       "theme": "backgrounds/autumn-yard/theme.json"
     }
